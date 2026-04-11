@@ -7,6 +7,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,7 +15,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.rate_limit import init_redis, close_redis
-from app.api.routes import chat, voice
+from app.services.backend_client import init_backend_client, close_backend_client
+from app.services.company_client import init_company_client, close_company_client
+from app.api.routes import chat
+from app.api.routes import company_chat
 
 # ── Logging ───────────────────────────────────────────────────────
 logging.basicConfig(
@@ -28,8 +32,24 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: open Redis pool.  Shutdown: close it."""
-    await init_redis()
+    from app.core.config import get_settings
+    s = get_settings()
+    if not s.llm_api_key:
+        logging.getLogger("wasla").warning(
+            "LLM_API_KEY is not set. Copy .env.example to .env and set a valid API key. "
+            "Supported: OpenRouter (openrouter.ai), HuggingFace (hf.co/settings/tokens), or any OpenAI-compatible provider."
+        )
+    try:
+        await asyncio.wait_for(init_redis(), timeout=5.0)
+    except asyncio.TimeoutError:
+        import app.core.rate_limit as rl
+        rl._redis = None
+        logging.getLogger("wasla").warning("Redis connection timed out — rate limiting disabled")
+    await init_backend_client()
+    await init_company_client()
     yield
+    await close_company_client()
+    await close_backend_client()
     await close_redis()
 
 
@@ -37,22 +57,12 @@ async def lifespan(app: FastAPI):
 
 TAGS_METADATA = [
     {
-        "name": "Chat",
-        "description": (
-            "Text-based AI chat endpoints. "
-            "**Route 1** uses a 3-iteration agentic tool-calling loop with "
-            "Llama-3.3-70B (fallback: Qwen-72B). "
-            "**Route 2** streams tokens via SSE using Llama-3.1-8B for low latency."
-        ),
+        "name": "Customer Chat",
+        "description": "Customer-facing AI chat endpoint widget using an agentic tool-calling loop. Accessed externally via the Wasla Customer Portal.",
     },
     {
-        "name": "Voice",
-        "description": (
-            "Voice endpoints for text-to-speech and real-time voice conversations. "
-            "**Route 4** converts text to speech (Kokoro-82M, local). "
-            "**Route 5** is a full-duplex WebSocket for voice conversations "
-            "(Whisper STT → LLM streaming → Kokoro TTS streaming)."
-        ),
+        "name": "Company Chat",
+        "description": "Staff-facing (Manager / Employee) AI chat with 40 tools for full CRM operations.",
     },
     {
         "name": "Health",
@@ -61,28 +71,21 @@ TAGS_METADATA = [
 ]
 
 app = FastAPI(
-    title="Wasla AI Agent API",
-    summary="AI customer-support backend — chat, voice streaming, and voice conversations.",
+    title="Wasla AI Agent APIs",
+    summary="Agentic AI backend for Wasla CRM and Customer Portals",
     description=(
-        "Drop-in replacement for Google Gemini-2.5-Flash, powered entirely by "
-        "**free Hugging Face open-weights models**.\n\n"
+        "This API provides agentic conversational interfaces for both the Wasla Customer Portal "
+        "and the Internal Company CRM. It operates natively using local Ollama models (e.g. Qwen 2.5) "
+        "or configured OpenRouter models to process intent and automatically execute backend actions.\n\n"
         "## Endpoints\n\n"
-        "| # | Endpoint | Transport | Purpose |\n"
-        "|---|----------|-----------|----------|\n"
-        "| 1 | `POST /api/chat/{company_id}` | JSON | Agentic chat with tool calling |\n"
-        "| 2 | `POST /api/chat/{company_id}/stream` | SSE | Low-latency token streaming |\n"
-        "| 4 | `POST /api/voice/tts` | Binary | One-shot text-to-speech |\n"
-        "| 5 | `WS /api/voice/conversation/{company_id}` | WebSocket | Full-duplex voice conversation |\n\n"
-        "## Models\n\n"
-        "| Task | Model |\n"
-        "|------|-------|\n"
-        "| Chat (tool calling) | `meta-llama/Llama-3.3-70B-Instruct` |\n"
-        "| Chat fallback | `Qwen/Qwen2.5-72B-Instruct` |\n"
-        "| Voice streaming | `meta-llama/Llama-3.1-8B-Instruct` |\n"
-        "| Text-to-speech | `hexgrad/Kokoro-82M` (local, 24 kHz) |\n"
-        "| Speech-to-text | `openai/whisper-large-v3-turbo` (HF API) |\n"
+        "| Endpoint | Transport | Context | Capabilities |\n"
+        "|----------|-----------|---------|--------------|\n"
+        "| `POST /api/chat/{company_id}` | JSON | Public Customer Portal | General inquiries, submitting service requests, checking offers. |\n"
+        "| `POST /api/company/chat` | JSON | Internal CRM | Full CRM capabilities (Customers, Offers, Tasks, Appointments). Requires JWT Bearer token authentication. |\n\n"
+        "---\n"
+        "**Authentication:** Include standard `Bearer <JWT_TOKEN>` in the headers when accessing protected internal endpoints."
     ),
-    version="2.0.0",
+    version="2.1.0",
     openapi_tags=TAGS_METADATA,
     lifespan=lifespan,
     license_info={"name": "MIT"},
@@ -100,10 +103,16 @@ app.add_middleware(
 
 # ── Register routers ─────────────────────────────────────────────
 app.include_router(chat.router)
-app.include_router(voice.router)
+app.include_router(company_chat.router)
 
 
 # ── Root & health ─────────────────────────────────────────────────
+@app.get("/ping", include_in_schema=False)
+async def ping():
+    """Minimal endpoint with no deps — use to verify server responds."""
+    return {"pong": True}
+
+
 @app.get("/", include_in_schema=False)
 async def root():
     return {"service": "Wasla AI Agent API", "docs": "/docs", "health": "/health"}
@@ -124,8 +133,5 @@ async def health_check():
         "status": "ok",
         "main_model": s.main_chat_model,
         "fallback_model": s.fallback_chat_model,
-        "voice_model": s.voice_stream_model,
-        "tts_voice": s.tts_voice,
-        "stt_model": s.stt_model,
         "max_context_tokens": s.max_context_tokens,
     }

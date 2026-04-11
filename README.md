@@ -12,12 +12,11 @@ ai_agent_backend/
 ├── requirements.txt
 ├── .env
 └── app/
-    ├── main.py                     # FastAPI app init, CORS, Redis lifespan
+    ├── main.py                     # FastAPI app init, CORS, lifespan
     ├── core/
     │   ├── config.py               # Pydantic BaseSettings (env var validation)
-    │   └── rate_limit.py           # Redis connection & dynamic rate limiter
     ├── api/
-    │   ├── dependencies.py         # Reusable deps (company_id, rate limit, schemas)
+    │   ├── dependencies.py         # Reusable deps (company_id, schemas)
     │   └── routes/
     │       ├── chat.py             # Route 1 (Main Chat) & Route 2 (Voice Stream)
     │       └── voice.py            # Route 4 (TTS) & Route 5 (Voice Conversation WS)
@@ -80,22 +79,35 @@ cp .env.example .env
 # Edit .env — set HUGGINGFACE_TOKEN at minimum
 ```
 
-### 3. Redis (optional — for rate limiting)
-
-```bash
-# Docker
-docker run -d --name redis -p 6379:6379 redis:alpine
-
-# Or skip — the app degrades gracefully without Redis
-```
-
-### 4. Run
+### 3. Run
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 API docs: http://localhost:8000/docs
+
+---
+
+## 🐳 Docker Deployment (Recommended)
+
+For easy deployment and distribution to teams, use Docker:
+
+### Quick Docker Start
+
+```bash
+# 1. Configure API key
+cp .env.example .env
+# Edit .env and set LLM_API_KEY
+
+# 2. Start with Docker Compose
+docker-compose up -d
+
+# 3. Access API
+# http://localhost:8000/docs
+```
+
+See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed deployment guide or [QUICKSTART.md](QUICKSTART.md) for the fastest way to get started.
 
 ---
 
@@ -235,8 +247,6 @@ Gemini Live's proprietary WebRTC audio-to-audio has **no equivalent** on HF.
 
 **Handled by:** `app/utils/retries.py` — `@hf_retry` decorator with tenacity (5 attempts, exponential backoff 2 s → 60 s). Route 1 also auto-falls back from Llama-70B to Qwen-72B.
 
-**Also:** `app/core/rate_limit.py` — per-company sliding-window rate limiter via Redis.
-
 ---
 
 ## Adding New Tools
@@ -262,6 +272,3 @@ Gemini Live's proprietary WebRTC audio-to-audio has **no equivalent** on HF.
 | `MAX_CHAT_TOKENS` | `1024` | Max output tokens (chat) |
 | `MAX_VOICE_TOKENS` | `250` | Max output tokens (voice) |
 | `MAX_CONTEXT_TOKENS` | `8192` | HF context window budget |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
-| `RATE_LIMIT_REQUESTS` | `30` | Requests per window |
-| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window (seconds) |

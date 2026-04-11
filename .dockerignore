@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Environment - NEVER commit or include in Docker image
+.env
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_output.wav
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docs and specs
+specs/
+*.md
+!README.md
+
+# Other
+.cursor/
+.claude/
+.specify/
+.worktrees/

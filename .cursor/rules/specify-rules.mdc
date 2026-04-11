@@ -1,0 +1,35 @@
+﻿---
+description: Project Development Guidelines
+globs: ["**/*"]
+alwaysApply: true
+---
+# wasla-models Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-03-14
+
+## Active Technologies
+
+- Python 3.11+ + FastAPI 0.115.6, huggingface_hub >=0.27.1, pydantic 2.10.4, httpx (new — async HTTP client for CRM API calls), tenacity 9.0.0 (001-customer-portal-agent)
+
+## Project Structure
+
+```text
+backend/
+frontend/
+tests/
+```
+
+## Commands
+
+cd src; pytest; ruff check .
+
+## Code Style
+
+Python 3.11+: Follow standard conventions
+
+## Recent Changes
+
+- 001-customer-portal-agent: Added Python 3.11+ + FastAPI 0.115.6, huggingface_hub >=0.27.1, pydantic 2.10.4, httpx (new — async HTTP client for CRM API calls), tenacity 9.0.0
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

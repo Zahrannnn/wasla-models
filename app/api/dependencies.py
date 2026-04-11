@@ -60,31 +60,6 @@ class ChatRequest(BaseModel):
     }
 
 
-class VoiceChatRequest(BaseModel):
-    """Body for the voice streaming endpoint (Route 2)."""
-
-    prompt: str = Field(
-        ...,
-        min_length=1,
-        description="Spoken user message (transcribed text).",
-        json_schema_extra={"examples": ["What are today's sales?"]},
-    )
-    conversation_history: list[dict] = Field(
-        default_factory=list,
-        description="Previous messages for multi-turn context.",
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "prompt": "What are today's sales?",
-                    "conversation_history": [],
-                }
-            ]
-        }
-    }
-
 
 class ChatResponse(BaseModel):
     """JSON response from the main chat endpoint."""
@@ -114,25 +89,6 @@ class ChatResponse(BaseModel):
         }
     }
 
-
-class TTSRequest(BaseModel):
-    """Body for the text-to-speech endpoint (Route 4)."""
-
-    text: str = Field(
-        ...,
-        min_length=1,
-        max_length=1000,
-        description="The text to synthesize into speech audio.",
-        json_schema_extra={"examples": ["Hello, welcome to Wasla! How can I help you today?"]},
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {"text": "Hello, welcome to Wasla! How can I help you today?"}
-            ]
-        }
-    }
 
 
 # ── Dependency functions ─────────────────────────────────────────

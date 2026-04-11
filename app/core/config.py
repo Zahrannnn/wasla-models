@@ -8,26 +8,32 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Central configuration loaded from environment variables."""
 
-    # ── Hugging Face ──────────────────────────────────────────────
-    huggingface_token: str = "hf_your_free_token_here"
+    # ── LLM Provider (any OpenAI-compatible endpoint) ────────────
+    llm_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("llm_api_key", "huggingface_token"),
+    )
+    llm_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        validation_alias=AliasChoices("llm_base_url", "hf_router_base_url"),
+    )
 
-    # Primary models
-    main_chat_model: str = "meta-llama/Llama-3.3-70B-Instruct"
-    voice_stream_model: str = "meta-llama/Llama-3.1-8B-Instruct"
+    # Primary models (OpenRouter free models with tool-calling support)
+    main_chat_model: str = "arcee-ai/trinity-large-preview:free"
 
     # Fallback model (if primary is rate-limited or down)
-    fallback_chat_model: str = "Qwen/Qwen2.5-72B-Instruct"
+    fallback_chat_model: str = "google/gemma-3n-e4b-it:free"
 
     # ── Agent loop ────────────────────────────────────────────────
     max_tool_iterations: int = 3
     max_chat_tokens: int = 1024
-    max_voice_tokens: int = 250
 
     # ── Context window ────────────────────────────────────────────
     # HF free-tier models generally cap at 8 192 tokens.
@@ -35,19 +41,30 @@ class Settings(BaseSettings):
     # (max_context_tokens - max_chat_tokens).
     max_context_tokens: int = 8192
 
+    # ── Customer Portal API (only source for customer data) ─────────
+    crm_api_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("crm_api_base_url", "backend_api_base_url"),
+    )
+    crm_api_timeout_seconds: int = Field(
+        default=10,
+        validation_alias=AliasChoices("crm_api_timeout_seconds", "backend_api_timeout_seconds"),
+    )
+
+    # ── Company Portal API (staff-facing CRM operations) ──────────
+    company_api_base_url: str = ""
+    company_api_timeout_seconds: int = 10
+
     # ── Redis ─────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     rate_limit_requests: int = 30          # max requests …
     rate_limit_window_seconds: int = 60    # … per this window
 
-    # ── TTS (Kokoro-82M local) ────────────────────────────────────
-    tts_voice: str = "af_heart"        # Kokoro voice preset
-    tts_lang_code: str = "a"           # "a" = American English
-
-    # ── STT (Hugging Face Inference API) ──────────────────────────
-    stt_model: str = "openai/whisper-large-v3-turbo"
-
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",  # ignore unknown env vars (e.g. old backend_api_*)
+    }
 
 
 @lru_cache()

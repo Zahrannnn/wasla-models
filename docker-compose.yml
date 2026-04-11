@@ -1,0 +1,33 @@
+services:
+  wasla-ai-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wasla-ai-agent
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Provider (OpenRouter recommended for free tier)
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      
+      # Model Configuration
+      - MAIN_CHAT_MODEL=${MAIN_CHAT_MODEL:-qwen/qwen3-14b:free}
+      - FALLBACK_CHAT_MODEL=${FALLBACK_CHAT_MODEL:-qwen/qwen3-8b:free}
+      
+      # Agent loop settings
+      - MAX_TOOL_ITERATIONS=${MAX_TOOL_ITERATIONS:-3}
+      - MAX_CHAT_TOKENS=${MAX_CHAT_TOKENS:-1024}
+      
+      # Context window limit
+      - MAX_CONTEXT_TOKENS=${MAX_CONTEXT_TOKENS:-8192}
+      
+      # Customer Portal API
+      - CRM_API_BASE_URL=${CRM_API_BASE_URL:-http://waslacrm.runasp.net/api/customer-portal}
+      - CRM_API_TIMEOUT_SECONDS=${CRM_API_TIMEOUT_SECONDS:-10}
+      
+      # Company Portal API
+      - COMPANY_API_BASE_URL=${COMPANY_API_BASE_URL:-http://waslacrm.runasp.net/api}
+      - COMPANY_API_TIMEOUT_SECONDS=${COMPANY_API_TIMEOUT_SECONDS:-10}
+      
+    restart: unless-stopped

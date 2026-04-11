@@ -1,9 +1,9 @@
 """
-Tenacity retry configuration for Hugging Face free-tier 429 errors.
+Tenacity retry configuration for LLM API calls.
 
-Apply ``@hf_retry`` to any async function that calls the HF
-Inference API.  It will automatically back off on 429 errors and
-retry up to 5 times with exponential delays (2 s → 60 s).
+Apply ``@llm_retry`` to any async function that calls the LLM API.
+Retries on rate-limit (429) and transient server errors (5xx)
+up to 5 times with exponential delays (2 s -> 60 s).
 """
 
 from __future__ import annotations
@@ -18,30 +18,31 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from huggingface_hub.errors import HfHubHTTPError
+from openai import APIError, RateLimitError, APIConnectionError, APITimeoutError
 
 logger = logging.getLogger("wasla.retries")
 
 
-# ── Retry decorator ──────────────────────────────────────────────
-hf_retry = retry(
-    retry=retry_if_exception_type(HfHubHTTPError),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=2, max=60),
+llm_retry = retry(
+    retry=retry_if_exception_type((RateLimitError, APIConnectionError, APITimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
     before_sleep=lambda rs: logger.warning(
-        "HF rate-limited — retrying in %.1f s (attempt %d)",
+        "LLM rate-limited — retrying in %.1f s (attempt %d)",
         rs.next_action.sleep,  # type: ignore[union-attr]
         rs.attempt_number,
     ),
     reraise=True,
 )
 
+# Backward compat alias
+hf_retry = llm_retry
 
-# ── Message serialisation helper ─────────────────────────────────
+
 def serialize_message(msg: Any) -> dict[str, Any]:
     """
-    Convert a ``ChatCompletionOutputMessage`` (or plain dict) into
-    a JSON-safe dict that can be appended back to the messages list.
+    Convert an LLM response message object (or plain dict) into
+    a JSON-safe dict for the messages list.
     """
     if isinstance(msg, dict):
         return msg
