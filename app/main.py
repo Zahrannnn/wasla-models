@@ -13,43 +13,58 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from openai import AsyncOpenAI
 
+from app.core.config import get_settings
 from app.core.rate_limit import init_redis, close_redis
-from app.services.backend_client import init_backend_client, close_backend_client
-from app.services.company_client import init_company_client, close_company_client
+import app.core.rate_limit as rl
+from app.shared.react_engine import ReactEngine
+from app.customer.client import CustomerClient
+from app.company.client import CompanyClient
 from app.api.routes import chat
 from app.api.routes import company_chat
 
 # ── Logging ───────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(name)-22s │ %(levelname)-7s │ %(message)s",
+    format="%(asctime)s | %(name)-22s | %(levelname)-7s | %(message)s",
     datefmt="%H:%M:%S",
 )
 
 
-# ── Lifespan (Redis connect / disconnect) ─────────────────────────
+# ── Lifespan ─────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: open Redis pool.  Shutdown: close it."""
-    from app.core.config import get_settings
     s = get_settings()
     if not s.llm_api_key:
         logging.getLogger("wasla").warning(
             "LLM_API_KEY is not set. Copy .env.example to .env and set a valid API key. "
             "Supported: OpenRouter (openrouter.ai), HuggingFace (hf.co/settings/tokens), or any OpenAI-compatible provider."
         )
+
+    # Redis
     try:
         await asyncio.wait_for(init_redis(), timeout=5.0)
     except asyncio.TimeoutError:
-        import app.core.rate_limit as rl
         rl._redis = None
         logging.getLogger("wasla").warning("Redis connection timed out — rate limiting disabled")
-    await init_backend_client()
-    await init_company_client()
+
+    # HTTP clients
+    customer_client = CustomerClient(s.crm_api_base_url, s.crm_api_timeout_seconds)
+    company_client = CompanyClient(s.company_api_base_url, s.company_api_timeout_seconds)
+    await customer_client.init()
+    await company_client.init()
+    app.state.customer_client = customer_client
+    app.state.company_client = company_client
+
+    # LLM client + ReAct engine
+    llm_client = AsyncOpenAI(base_url=s.llm_base_url, api_key=s.llm_api_key)
+    app.state.engine = ReactEngine(llm_client, s)
+
     yield
-    await close_company_client()
-    await close_backend_client()
+
+    await company_client.close()
+    await customer_client.close()
     await close_redis()
 
 
@@ -95,7 +110,7 @@ app = FastAPI(
 # ── CORS ──────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           # TODO: lock down for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,7 +124,6 @@ app.include_router(company_chat.router)
 # ── Root & health ─────────────────────────────────────────────────
 @app.get("/ping", include_in_schema=False)
 async def ping():
-    """Minimal endpoint with no deps — use to verify server responds."""
     return {"pong": True}
 
 
@@ -121,13 +135,6 @@ async def root():
 @app.get("/health", tags=["Health"], summary="Service health check",
          response_description="Current service status and configured models.")
 async def health_check():
-    """
-    Returns the service status, configured model names, and key settings.
-
-    Use this endpoint to verify the API is running and to inspect which
-    models and voices are currently active.
-    """
-    from app.core.config import get_settings
     s = get_settings()
     return {
         "status": "ok",
