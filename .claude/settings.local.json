@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(python -c \"from app.main import app; print\\('Imports OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"from app.main import app; routes = [r.path for r in app.routes]; assert '/api/chat' in routes; assert '/api/chat/{company_id}' in routes; assert '/api/company/chat' in routes; assert '/health' in routes; print\\('All endpoints OK'\\)\")",
+      "Bash(ls -la \"D:/wasla-models\"/*.md)",
+      "Bash(bash \"C:\\\\Users\\\\CS\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.6\\\\skills\\\\brainstorming\\\\scripts\\\\start-server.sh\" --project-dir \"D:\\\\wasla-models\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(ls -la /d/wasla-models/app/shared/*.py)",
+      "Bash(ls -la /d/wasla-models/app/shared/react* /d/wasla-models/app/prompts/react*)"
     ]
   }
 }

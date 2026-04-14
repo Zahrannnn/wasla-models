@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from app.shared.auth import strip_bearer_prefix
+
 logger = logging.getLogger("wasla.http")
 
 _ERROR_MAP = {
@@ -63,12 +65,19 @@ class BaseApiClient:
         params: dict[str, Any] | None = None,
         body: dict[str, Any] | str | None = None,
     ) -> dict[str, Any]:
+        """
+        Send a JSON request. ``body`` may be a dict (JSON object) or, for APIs that
+        expect a JSON string primitive (e.g. status enum as raw string), a ``str``
+        which httpx encodes as a JSON string value.
+        """
         if self._client is None:
             raise RuntimeError("HTTP client not initialized.")
 
         headers: dict[str, str] = {}
         if bearer:
-            headers["Authorization"] = f"Bearer {bearer}"
+            clean = strip_bearer_prefix(bearer)
+            if clean:
+                headers["Authorization"] = f"Bearer {clean}"
 
         try:
             response = await self._client.request(
@@ -93,7 +102,20 @@ class BaseApiClient:
             message = response.text
 
         error_type = _ERROR_MAP.get(response.status_code, "service_error")
+        if error_type == "unauthorized" and bearer:
+            logger.warning(
+                "Upstream API returned 401: %s %s (bearer was sent; token may be wrong portal, expired, or path incorrect)",
+                method,
+                path,
+            )
         return {"error": error_type, "message": message or "API request failed."}
+
+    @staticmethod
+    def normalize_page_index(page_index: int | None) -> int | None:
+        """Wasla CRM uses 1-based ``pageIndex``; ``0`` can trigger upstream 500 errors."""
+        if page_index is None:
+            return None
+        return page_index if page_index >= 1 else 1
 
     @staticmethod
     def clean_params(params: dict[str, Any]) -> dict[str, Any]:

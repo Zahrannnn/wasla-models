@@ -25,11 +25,17 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("llm_base_url", "hf_router_base_url"),
     )
 
-    # Primary models (OpenRouter free models with tool-calling support)
-    main_chat_model: str = "arcee-ai/trinity-large-preview:free"
+    # Provider selection: "openrouter" | "ollama" | "anthropic"
+    llm_provider: str = "ollama"
 
-    # Fallback model (if primary is rate-limited or down)
-    fallback_chat_model: str = "google/gemma-3n-e4b-it:free"
+    # Ollama-specific (only used when llm_provider == "ollama")
+    ollama_base_url: str = "http://localhost:11434"
+
+    # Primary chat model (Ollama tag, e.g. qwen2.5:3b, or OpenRouter id when using openrouter)
+    main_chat_model: str = "qwen2.5:3b"
+
+    # Fallback model (same tag is fine for Ollama to avoid pulling two models)
+    fallback_chat_model: str = "qwen2.5:3b"
 
     # ── Agent loop ────────────────────────────────────────────────
     max_tool_iterations: int = 3

@@ -22,7 +22,7 @@ class CompanyClient(BaseApiClient):
     # ── Customers ─────────────────────────────────────────────────
 
     async def get_customers(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None, search: str | None = None) -> dict[str, Any]:
-        return await self.request("GET", "/Customer", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size, "search": search}))
+        return await self.request("GET", "/Customer", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "search": search}))
 
     async def get_customer_details(self, bearer: str, customer_id: int) -> dict[str, Any]:
         return await self.request("GET", f"/Customer/{customer_id}", bearer=bearer)
@@ -38,16 +38,16 @@ class CompanyClient(BaseApiClient):
         return await self.request("DELETE", f"/Customer/{customer_id}", bearer=bearer)
 
     async def get_customer_offers(self, bearer: str, customer_id: int, *, page_index: int | None = None, page_size: int | None = None) -> dict[str, Any]:
-        return await self.request("GET", f"/Customer/{customer_id}/offers", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size}))
+        return await self.request("GET", f"/Customer/{customer_id}/offers", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size}))
 
     async def get_customer_tasks(self, bearer: str, customer_id: int, *, page_index: int | None = None, page_size: int | None = None) -> dict[str, Any]:
-        return await self.request("GET", f"/Customer/{customer_id}/tasks", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size}))
+        return await self.request("GET", f"/Customer/{customer_id}/tasks", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size}))
 
     # ── Offers ────────────────────────────────────────────────────
 
     async def get_offers(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None,
                          search_word: str | None = None, status: str | None = None) -> dict[str, Any]:
-        return await self.request("GET", "/Offers", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size, "searchWord": search_word, "status": status}))
+        return await self.request("GET", "/Offers", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "searchWord": search_word, "status": status}))
 
     async def get_offer_details(self, bearer: str, offer_id: int) -> dict[str, Any]:
         return await self.request("GET", f"/Offers/{offer_id}", bearer=bearer)
@@ -59,6 +59,7 @@ class CompanyClient(BaseApiClient):
         return await self.request("PUT", f"/Offers/{offer_id}", bearer=bearer, body=payload)
 
     async def update_offer_status(self, bearer: str, offer_id: int, *, status: str) -> dict[str, Any]:
+        # Backend expects a JSON string primitive (e.g. "Sent"), not {"status": "..."}.
         return await self.request("PATCH", f"/Offers/{offer_id}/status", bearer=bearer, body=status)
 
     async def delete_offer(self, bearer: str, offer_id: int) -> dict[str, Any]:
@@ -67,10 +68,10 @@ class CompanyClient(BaseApiClient):
     # ── Tasks ─────────────────────────────────────────────────────
 
     async def get_all_tasks(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None) -> dict[str, Any]:
-        return await self.request("GET", "/Task/all", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size}))
+        return await self.request("GET", "/Task/all", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size}))
 
     async def get_my_tasks(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None) -> dict[str, Any]:
-        return await self.request("GET", "/Task/assigned-to-me", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size}))
+        return await self.request("GET", "/Task/assigned-to-me", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size}))
 
     async def get_task_details(self, bearer: str, task_id: int) -> dict[str, Any]:
         return await self.request("GET", f"/Task/{task_id}", bearer=bearer)
@@ -101,7 +102,7 @@ class CompanyClient(BaseApiClient):
     # ── Employees ─────────────────────────────────────────────────
 
     async def get_employees(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None, search: str | None = None) -> dict[str, Any]:
-        return await self.request("GET", "/Employees", bearer=bearer, params=self.clean_params({"pageIndex": page_index, "pageSize": page_size, "search": search}))
+        return await self.request("GET", "/Employees", bearer=bearer, params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "search": search}))
 
     async def get_employee_details(self, bearer: str, user_id: int) -> dict[str, Any]:
         return await self.request("GET", f"/Employees/{user_id}", bearer=bearer)
@@ -144,7 +145,7 @@ class CompanyClient(BaseApiClient):
     async def get_appointments(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None,
                                search: str | None = None, start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
         return await self.request("GET", "/Appointments", bearer=bearer,
-                                   params=self.clean_params({"pageIndex": page_index, "pageSize": page_size, "search": search, "startDate": start_date, "endDate": end_date}))
+                                   params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "search": search, "startDate": start_date, "endDate": end_date}))
 
     async def create_appointment(self, bearer: str, payload: dict) -> dict[str, Any]:
         return await self.request("POST", "/Appointments", bearer=bearer, body=payload)
@@ -158,7 +159,7 @@ class CompanyClient(BaseApiClient):
 
     async def get_service_requests(self, bearer: str, *, page_index: int | None = None, page_size: int | None = None, status: str | None = None) -> dict[str, Any]:
         return await self.request("GET", "/company/service-requests", bearer=bearer,
-                                   params=self.clean_params({"pageIndex": page_index, "pageSize": page_size, "status": status}))
+                                   params=self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "status": status}))
 
     async def get_service_request_details(self, bearer: str, request_id: int) -> dict[str, Any]:
         return await self.request("GET", f"/company/service-requests/{request_id}", bearer=bearer)

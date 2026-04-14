@@ -45,7 +45,7 @@ class CustomerClient(BaseApiClient):
         search: str | None = None, service_type: str | None = None, sort_by: str | None = None,
     ) -> dict[str, Any]:
         params = self.clean_params({
-            "pageIndex": page_index, "pageSize": page_size,
+            "pageIndex": self.normalize_page_index(page_index), "pageSize": page_size,
             "search": search, "serviceType": service_type, "sortBy": sort_by,
         })
         return await self.request("GET", "/companies", params=params)
@@ -54,14 +54,14 @@ class CustomerClient(BaseApiClient):
         self, *, page_index: int | None = None, page_size: int | None = None,
         service_type: str | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size, "serviceType": service_type})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "serviceType": service_type})
         return await self.request("GET", "/recommended-companies", params=params)
 
     async def get_trending_companies(
         self, *, page_index: int | None = None, page_size: int | None = None,
         service_type: str | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size, "serviceType": service_type})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "serviceType": service_type})
         return await self.request("GET", "/trending-companies", params=params)
 
     async def get_company_details(self, company_id: int) -> dict[str, Any]:
@@ -71,7 +71,7 @@ class CustomerClient(BaseApiClient):
         self, company_id: int, *, page_index: int | None = None,
         page_size: int | None = None, sort_by: str | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size, "sortBy": sort_by})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "sortBy": sort_by})
         return await self.request("GET", f"/companies/{company_id}/reviews", params=params)
 
     # ── Reviews ───────────────────────────────────────────────────
@@ -94,7 +94,7 @@ class CustomerClient(BaseApiClient):
     async def get_my_reviews(
         self, bearer_token: str, *, page_index: int | None = None, page_size: int | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size})
         return await self.request("GET", "/my/reviews", bearer=bearer_token, params=params)
 
     # ── Profiles ──────────────────────────────────────────────────
@@ -120,7 +120,7 @@ class CustomerClient(BaseApiClient):
         self, bearer_token: str, *, page_index: int | None = None,
         page_size: int | None = None, status: str | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size, "status": status})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "status": status})
         return await self.request("GET", "/my/offers", bearer=bearer_token, params=params)
 
     async def get_offer_details(self, bearer_token: str, offer_id: int) -> dict[str, Any]:
@@ -159,7 +159,7 @@ class CustomerClient(BaseApiClient):
         self, bearer_token: str, *, page_index: int | None = None,
         page_size: int | None = None, status: str | None = None,
     ) -> dict[str, Any]:
-        params = self.clean_params({"pageIndex": page_index, "pageSize": page_size, "status": status})
+        params = self.clean_params({"pageIndex": self.normalize_page_index(page_index), "pageSize": page_size, "status": status})
         return await self.request("GET", "/my/service-requests", bearer=bearer_token, params=params)
 
     async def get_service_request_details(self, bearer_token: str, request_id: int) -> dict[str, Any]:

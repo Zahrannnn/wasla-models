@@ -8,9 +8,7 @@ up to 5 times with exponential delays (2 s -> 60 s).
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from tenacity import (
     retry,
@@ -18,7 +16,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from openai import APIError, RateLimitError, APIConnectionError, APITimeoutError
+from openai import RateLimitError, APIConnectionError, APITimeoutError
 
 logger = logging.getLogger("wasla.retries")
 
@@ -34,39 +32,3 @@ llm_retry = retry(
     ),
     reraise=True,
 )
-
-# Backward compat alias
-hf_retry = llm_retry
-
-
-def serialize_message(msg: Any) -> dict[str, Any]:
-    """
-    Convert an LLM response message object (or plain dict) into
-    a JSON-safe dict for the messages list.
-    """
-    if isinstance(msg, dict):
-        return msg
-
-    result: dict[str, Any] = {"role": msg.role}
-
-    if msg.content:
-        result["content"] = msg.content
-
-    if hasattr(msg, "tool_calls") and msg.tool_calls:
-        result["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": (
-                        tc.function.arguments
-                        if isinstance(tc.function.arguments, str)
-                        else json.dumps(tc.function.arguments)
-                    ),
-                },
-            }
-            for tc in msg.tool_calls
-        ]
-
-    return result

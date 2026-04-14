@@ -1,64 +1,12 @@
 # Wasla AI Agent Backend
 
-> AI chat backend powered by **free Hugging Face open-weights models**.
-> Drop-in replacement for Google Gemini-2.5-Flash.
-
----
-
-## Architecture
-
-```
-ai_agent_backend/
-├── requirements.txt
-├── .env
-└── app/
-    ├── main.py                     # FastAPI app init, CORS, lifespan
-    ├── core/
-    │   ├── config.py               # Pydantic BaseSettings (env var validation)
-    ├── api/
-    │   ├── dependencies.py         # Reusable deps (company_id, schemas)
-    │   └── routes/
-    │       ├── chat.py             # Route 1 (Main Chat) & Route 2 (Voice Stream)
-    │       └── voice.py            # Route 4 (TTS) & Route 5 (Voice Conversation WS)
-    ├── services/
-    │   ├── llm_service.py          # Hugging Face LLM logic & tool-calling loop
-    │   ├── tts_service.py          # Kokoro-82M local text-to-speech (full + streaming)
-    │   └── stt_service.py          # Whisper STT via HF Inference API
-    ├── tools/
-    │   ├── schemas.py              # Tool definitions (JSON schemas for the LLM)
-    │   ├── operations.py           # The actual functions (Read, Write, Navigate)
-    │   └── registry.py             # Maps tool JSON names → Python functions
-    └── utils/
-        ├── context_manager.py      # Trims chat history to fit 8k token limits
-        └── retries.py              # Tenacity config for HF free-tier 429 errors
-```
-
----
-
-## Routes
-
-| Route | Endpoint | Model | Purpose |
-|-------|----------|-------|---------|
-| **1** | `POST /api/chat/{company_id}` | `Llama-3.3-70B-Instruct` | Main chat — 3-iteration tool-calling loop |
-| **2** | `POST /api/chat/{company_id}/stream` | `Llama-3.1-8B-Instruct` | Voice SSE streaming (low latency) |
-| **4** | `POST /api/voice/tts` | `Kokoro-82M (local)` | Text-to-speech (one-shot) |
-| **5** | `WS /api/voice/conversation/{company_id}` | Whisper + Llama-3.1-8B + Kokoro | Full-duplex voice conversation |
-| — | `GET /health` | — | Service status & model info |
-
-### Model Selection
-
-| Use Case | Primary | Fallback |
-|----------|---------|----------|
-| Complex tool calling | `meta-llama/Llama-3.3-70B-Instruct` | `Qwen/Qwen2.5-72B-Instruct` |
-| Voice streaming | `meta-llama/Llama-3.1-8B-Instruct` | — |
-| Text-to-speech | `hexgrad/Kokoro-82M` (local) | — |
-| Speech-to-text | `openai/whisper-large-v3-turbo` (HF API) | — |
+FastAPI backend for Wasla conversational workflows, powered by LangGraph + LangChain tool orchestration.
 
 ---
 
 ## Quick Start
 
-### 1. Install
+### 1) Install dependencies
 
 ```bash
 cd wasla-models
@@ -72,203 +20,165 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure
+### 2) Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env — set HUGGINGFACE_TOKEN at minimum
 ```
 
-### 3. Run
+Set at minimum:
+- `LLM_PROVIDER` (`ollama`, `openrouter`, or `anthropic`)
+- `MAIN_CHAT_MODEL`
+- `FALLBACK_CHAT_MODEL`
+- `LLM_API_KEY` (required for cloud providers, not required for Ollama)
+
+### 3) Run API
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API docs: http://localhost:8000/docs
+- Swagger: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
+- OpenAPI JSON: <http://localhost:8000/openapi.json>
 
 ---
 
-## 🐳 Docker Deployment (Recommended)
+## API Surface
 
-For easy deployment and distribution to teams, use Docker:
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/chat` | Customer-facing conversational assistant |
+| `POST` | `/api/company/chat` | Company/staff-facing conversational assistant |
+| `GET` | `/health` | Service liveness and active LLM configuration |
 
-### Quick Docker Start
+### Chat contract
 
-```bash
-# 1. Configure API key
-cp .env.example .env
-# Edit .env and set LLM_API_KEY
+`POST /api/chat` and `POST /api/company/chat` both use:
 
-# 2. Start with Docker Compose
-docker-compose up -d
-
-# 3. Access API
-# http://localhost:8000/docs
-```
-
-See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed deployment guide or [QUICKSTART.md](QUICKSTART.md) for the fastest way to get started.
+- Request: `message`, optional `session_id`
+- Response: `response`, `session_id`, `tool_calls_made`, `model_used`, `charts`
 
 ---
 
-## API Reference
+## Documentation
 
-### Route 1 — Main Chat
+### Backend (new)
 
-```http
-POST /api/chat/{company_id}
-Content-Type: application/json
+- [`docs/backend-architecture-guide.md`](docs/backend-architecture-guide.md) — architecture overview, core techniques, and Mermaid diagrams.
+- [`docs/backend-api-guide.md`](docs/backend-api-guide.md) — auth/session behavior, endpoint contracts, examples, and error handling.
 
-{
-  "prompt": "Show me the top 5 customers",
-  "conversation_history": []
-}
-```
+### Frontend integration guides
 
-```json
-{
-  "response": "Here are your top 5 customers...",
-  "tool_calls_made": 1,
-  "model_used": "meta-llama/Llama-3.3-70B-Instruct"
-}
-```
+- [`docs/frontend-customer-guide.md`](docs/frontend-customer-guide.md)
+- [`docs/frontend-company-guide.md`](docs/frontend-company-guide.md)
+- [`docs/frontend-migration-guide.md`](docs/frontend-migration-guide.md)
 
-### Route 2 — Voice Stream (SSE)
+### Project planning artifacts
 
-```http
-POST /api/chat/{company_id}/stream
-Content-Type: application/json
-
-{
-  "prompt": "What are today's sales?",
-  "conversation_history": []
-}
-```
-
-Response: `text/event-stream`
-```
-data: Today's
-data:  sales
-data:  look
-data:  great!
-data: [DONE]
-```
-
-### Route 4 — TTS (one-shot)
-
-```http
-POST /api/voice/tts
-Content-Type: application/json
-
-{ "text": "Hello, welcome to Wasla." }
-```
-
-Response: `audio/wav` binary
-
-### Route 5 — Voice Conversation (WebSocket)
-
-```
-WS /api/voice/conversation/{company_id}
-```
-
-**Full-duplex voice conversation.** Each turn:
-1. Client sends recorded audio → server transcribes (Whisper STT)
-2. Server streams LLM response tokens (live captions)
-3. Server streams TTS audio chunks (Kokoro)
-4. Server signals turn complete → client can speak again
-
-#### Client → Server messages
-
-```jsonc
-// Send recorded audio (base64-encoded WAV/WebM/MP3)
-{ "type": "audio", "data": "<base64 audio bytes>" }
-
-// Or send text directly (skip STT)
-{ "type": "text", "data": "typed user message" }
-
-// End the conversation
-{ "type": "end" }
-```
-
-#### Server → Client messages
-
-```jsonc
-{ "type": "transcript", "data": "what the user said" }   // STT result
-{ "type": "llm_token",  "data": "Hello"  }               // streamed LLM token
-{ "type": "audio",      "data": "<base64 PCM16 chunk>" } // TTS audio chunk (24kHz mono)
-{ "type": "done" }                                        // turn complete
-{ "type": "error",      "data": "error message" }        // error
-```
-
-#### JavaScript example
-
-```javascript
-const ws = new WebSocket("ws://localhost:8000/api/voice/conversation/my-company");
-
-ws.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.type === "transcript")  showTranscript(msg.data);
-  if (msg.type === "llm_token")   appendCaption(msg.data);
-  if (msg.type === "audio")       playAudioChunk(atob(msg.data));
-  if (msg.type === "done")        enableMicrophone();
-};
-
-// Send recorded audio
-function sendAudio(blob) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(reader.result)));
-    ws.send(JSON.stringify({ type: "audio", data: b64 }));
-  };
-  reader.readAsArrayBuffer(blob);
-}
-```
+- Design spec: [`docs/superpowers/specs/2026-04-14-backend-professional-docs-design.md`](docs/superpowers/specs/2026-04-14-backend-professional-docs-design.md)
+- Implementation plan: [`docs/superpowers/plans/2026-04-14-backend-professional-docs.md`](docs/superpowers/plans/2026-04-14-backend-professional-docs.md)
 
 ---
 
-## 🚨 Migration Warnings (Gemini → Hugging Face)
+## Architecture (Current)
 
-### 1. Context Window Collapse
+Top-level backend modules:
 
-| Model | Window |
-|-------|--------|
-| Gemini 2.5 Flash | **1 000 000 tokens** |
-| HF Free Tier | **~8 192 tokens** |
+- `app/main.py` — FastAPI app bootstrap, OpenAPI metadata, lifespan init
+- `app/api/` — request models/dependencies and route handlers
+- `app/customer/` — customer-domain tools/operations/client
+- `app/company/` — company-domain tools/operations/client
+- `app/shared/` — shared agent, auth, LLM, HTTP, state utilities
+- `app/prompts/` — prompt assets for customer/company agents
 
-**Handled by:** `app/utils/context_manager.py` — `trim_messages()` automatically truncates history, keeping the system prompt + most recent messages.
+### Component diagram
 
-### 2. WebRTC / Route 3 is Dead
+```mermaid
+graph TB
+  subgraph Clients
+    C1[Customer UI]
+    C2[Company UI]
+  end
 
-Gemini Live's proprietary WebRTC audio-to-audio has **no equivalent** on HF.
+  subgraph API
+    R1["POST /api/chat"]
+    R2["POST /api/company/chat"]
+    H["GET /health"]
+  end
 
-**Replacement:** Route 5 WebSocket — full-duplex voice conversation using Whisper STT → LLM streaming → Kokoro TTS streaming.
+  subgraph Runtime
+    G1[Customer Graph]
+    G2[Company Graph]
+    T[Tool Registry]
+    S[Shared Layer]
+  end
 
-### 3. Free Tier Rate Limits (HTTP 429)
+  subgraph Domains
+    D1[app/customer/*]
+    D2[app/company/*]
+  end
 
-**Handled by:** `app/utils/retries.py` — `@hf_retry` decorator with tenacity (5 attempts, exponential backoff 2 s → 60 s). Route 1 also auto-falls back from Llama-70B to Qwen-72B.
+  subgraph External
+    LLM[LLM Provider]
+    CRM[CRM APIs]
+    REDIS[Redis]
+  end
+
+  C1 --> R1
+  C2 --> R2
+  R1 --> G1
+  R2 --> G2
+  R1 --> REDIS
+  G1 --> T
+  G2 --> T
+  T --> D1
+  T --> D2
+  D1 --> S
+  D2 --> S
+  S --> CRM
+  G1 --> LLM
+  G2 --> LLM
+```
+
+### Request lifecycle (`POST /api/chat`)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Client
+  participant R as Chat Route
+  participant D as Dependencies
+  participant G as LangGraph
+  participant X as Tools/CRM
+
+  U->>R: POST /api/chat (message, session_id?)
+  R->>D: Resolve bearer + request context
+  D-->>R: Context ready
+  R->>G: graph.ainvoke(...)
+  G->>X: Call tool(s) when needed
+  X-->>G: Tool results
+  G-->>R: AIMessage + metadata
+  R-->>U: ChatResponse
+```
+
+For deeper diagrams and design notes, see `docs/backend-architecture-guide.md`.
 
 ---
 
-## Adding New Tools
+## Environment Variables (Core)
 
-1. Add the JSON schema → `app/tools/schemas.py`
-2. Write the async function → `app/tools/operations.py`
-3. Register the mapping → `app/tools/registry.py`
+| Variable | Description |
+|---|---|
+| `LLM_PROVIDER` | LLM backend selector (`ollama`, `openrouter`, `anthropic`) |
+| `LLM_API_KEY` | API key for cloud providers |
+| `LLM_BASE_URL` | OpenAI-compatible base URL for provider |
+| `OLLAMA_BASE_URL` | Ollama base URL when using local inference |
+| `MAIN_CHAT_MODEL` | Primary chat model |
+| `FALLBACK_CHAT_MODEL` | Fallback model |
+| `MAX_CONTEXT_TOKENS` | Token budget for context management |
+| `CRM_API_BASE_URL` | Customer CRM API base URL |
+| `COMPANY_API_BASE_URL` | Company CRM API base URL |
+| `REDIS_URL` | Redis connection for rate limiting |
 
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HUGGINGFACE_TOKEN` | — | HF API token (**required**) |
-| `MAIN_CHAT_MODEL` | `meta-llama/Llama-3.3-70B-Instruct` | Route 1 primary |
-| `VOICE_STREAM_MODEL` | `meta-llama/Llama-3.1-8B-Instruct` | Route 2 streaming |
-| `FALLBACK_CHAT_MODEL` | `Qwen/Qwen2.5-72B-Instruct` | Fallback when primary is down |
-| `TTS_VOICE` | `af_heart` | Route 4/5 Kokoro voice preset |
-| `TTS_LANG_CODE` | `a` | Kokoro language code (a = American English) |
-| `STT_MODEL` | `openai/whisper-large-v3-turbo` | Route 5 speech-to-text model |
-| `MAX_TOOL_ITERATIONS` | `3` | Max tool loop iterations |
-| `MAX_CHAT_TOKENS` | `1024` | Max output tokens (chat) |
-| `MAX_VOICE_TOKENS` | `250` | Max output tokens (voice) |
-| `MAX_CONTEXT_TOKENS` | `8192` | HF context window budget |
+For the full config reference, use `.env.example` and `app/core/config.py`.
