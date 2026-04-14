@@ -340,7 +340,28 @@ async def get_expense_charts(ctx: dict, *, chart_type: str, **kw) -> dict:
     t = require_bearer(ctx)
     if isinstance(t, dict):
         return t
-    return await ctx["client"].get_expense_charts(t, chart_type=chart_type, from_date=kw.get("from"), to_date=kw.get("to"))
+    result = await ctx["client"].get_expense_charts(t, chart_type=chart_type, from_date=kw.get("from"), to_date=kw.get("to"))
+
+    # Attach _charts metadata for interactive frontend rendering
+    if isinstance(result, dict) and "error" not in result:
+        _meta = {
+            "monthly": {"id": "expense_monthly", "chart_type": "bar", "title": "Monthly Expenses"},
+            "category": {"id": "expense_category", "chart_type": "doughnut", "title": "Expenses by Category"},
+        }
+        meta = _meta.get(chart_type, {"id": f"expense_{chart_type}", "chart_type": "bar", "title": f"Expense Chart ({chart_type})"})
+        data = result.get("data", result)
+        labels: list[str] = []
+        values: list[float] = []
+        if isinstance(data, list):
+            for i, p in enumerate(data):
+                labels.append(str(p.get("month") or p.get("category") or p.get("label") or p.get("name") or f"#{i+1}"))
+                values.append(float(p.get("total") or p.get("amount") or p.get("value") or 0))
+        elif isinstance(data, dict):
+            labels = data.get("labels", [])
+            values = data.get("data") or data.get("values", [])
+        result["_charts"] = [{**meta, "labels": labels, "datasets": [{"label": "Amount (EGP)", "data": values}]}]
+
+    return result
 
 
 # ── Appointments ──────────────────────────────────────────────────

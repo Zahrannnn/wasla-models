@@ -1,6 +1,6 @@
 """
-Route 1 — Customer Portal Chat (ReAct agent loop)
-POST /api/chat         -> JSON response (Customer Portal agent)
+Customer Portal Chat — LangGraph agent endpoint.
+POST /api/chat         -> JSON response (session-based)
 POST /api/chat/{company_id} -> Legacy backward-compat route
 """
 
@@ -8,32 +8,28 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from langchain_core.messages import AIMessage, HumanMessage
 
-from app.api.dependencies import ChatRequest, ChatResponse, enforce_rate_limit
+from app.api.dependencies import (
+    ChatRequest,
+    ChatResponse,
+    ai_message_text,
+    checkpoint_tool_calls_total,
+    enforce_rate_limit,
+    extract_charts_from_messages,
+    graph_invoke_503_detail,
+)
 from app.shared.auth import extract_bearer
-from app.shared.prompts import load_prompt
-from app.customer import tools as customer_tools
+from app.shared.graph_request_context import graph_crm_client_reset, graph_crm_client_set
 
 logger = logging.getLogger("wasla.routes.chat")
-router = APIRouter(tags=["Chat"])
+router = APIRouter(tags=["Customer Chat"])
 
 _bearer_scheme = HTTPBearer(auto_error=False)
-
-
-def _auth_status_line(is_authenticated: bool) -> str:
-    if is_authenticated:
-        return (
-            "\n\nThe user IS authenticated — all protected tools will work. "
-            "Call tools directly without asking for login."
-        )
-    return (
-        "\n\nThe user is NOT authenticated (guest). "
-        "Public tools work. For protected actions, suggest they log in first "
-        "or offer to register/login via the register_customer or login_customer tools."
-    )
 
 
 async def _handle_chat(body: ChatRequest, request: Request, credentials, company_id: str | None = None):
@@ -41,47 +37,75 @@ async def _handle_chat(body: ChatRequest, request: Request, credentials, company
     token = extract_bearer(credentials, request)
     logger.info("Bearer extracted: %s", "YES" if token else "NO")
 
-    engine = request.app.state.engine
-    client = request.app.state.customer_client
-    ctx = {"bearer_token": token, "client": client}
+    session_id = body.session_id or str(uuid4())
+    graph = request.app.state.customer_graph
 
-    system_prompt = load_prompt("customer_system.md")
-    system_prompt += _auth_status_line(is_authenticated=token is not None)
+    run_config = {
+        "configurable": {
+            "thread_id": session_id,
+            "client": request.app.state.customer_client,
+            "bearer_token": token,
+        }
+    }
 
-    messages = [{"role": "system", "content": system_prompt}]
-    if body.conversation_history:
-        messages.extend(body.conversation_history)
-    messages.append({"role": "user", "content": body.prompt})
-
+    client_handle = graph_crm_client_set(request.app.state.customer_client)
     try:
-        result = await engine.run(
-            messages,
-            tools=customer_tools.get_tool_schemas(),
-            tool_executor=customer_tools.execute_tool,
-            ctx=ctx,
+        tool_calls_before = await checkpoint_tool_calls_total(graph, run_config)
+        result = await graph.ainvoke(
+            {
+                "messages": [HumanMessage(content=body.message)],
+                "bearer_token": token,
+            },
+            config=run_config,
         )
     except Exception as exc:
         logger.exception("Chat failed%s", f" for company {company_id}" if company_id else "")
-        detail = "AI model is unavailable. Please try again later."
-        if "401" in str(exc) or "Unauthorized" in str(exc):
-            detail = (
-                "LLM authentication failed. Set a valid LLM_API_KEY in .env."
-            )
+        detail = graph_invoke_503_detail(exc)
         raise HTTPException(status_code=503, detail=detail) from exc
+    finally:
+        graph_crm_client_reset(client_handle)
 
-    return ChatResponse(**result)
+    messages = result.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(status_code=500, detail="Unexpected graph output (missing messages).")
+
+    last = messages[-1]
+    if not isinstance(last, AIMessage):
+        raise HTTPException(status_code=500, detail="Unexpected graph output (no AIMessage).")
+
+    tool_calls_after = int(result.get("tool_calls_made") or 0)
+    charts = extract_charts_from_messages(messages)
+    return ChatResponse(
+        response=ai_message_text(last),
+        session_id=session_id,
+        tool_calls_made=max(0, tool_calls_after - tool_calls_before),
+        model_used=result.get("model_used", ""),
+        charts=charts,
+    )
 
 
 @router.post(
     "/api/chat",
     response_model=ChatResponse,
-    summary="Customer Portal — Agentic chat with tool calling",
+    summary="Customer Portal assistant agentic chat",
+    description=(
+        "Accepts a customer message and runs one LangGraph turn for the Customer Portal assistant. "
+        "Provide `session_id` from a previous response to continue the same conversation thread; "
+        "omit it to start a new server-managed thread. "
+        "A Bearer token is optional and unlocks authenticated tool actions."
+    ),
     operation_id="portalChat",
-    response_description="AI response with optional tool-call metadata.",
+    response_description="Assistant reply with session continuity fields and per-request tool call count.",
     responses={
-        200: {"description": "Successful AI response."},
-        429: {"description": "Rate limit exceeded."},
-        503: {"description": "AI model is temporarily unavailable."},
+        200: {"description": "Graph finished with an assistant message."},
+        429: {"description": "Rate limit exceeded (legacy `POST /api/chat/{company_id}` only)."},
+        500: {"description": "Graph ended without an AIMessage (unexpected)."},
+        503: {
+            "description": (
+                "Service unavailable: LLM or graph invocation failed (for example Ollama is down, "
+                "model tag is invalid, cloud API key is missing, or upstream authentication failed)."
+            )
+        },
     },
 )
 async def portal_chat(
@@ -90,13 +114,12 @@ async def portal_chat(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
 ):
     """
-    **Customer Portal chat endpoint** — agentic tool-calling loop.
+    Runs the **customer** LangGraph once per request: your `message` is appended to the thread,
+    then the model may call **Customer Portal** tools (auth, companies, reviews, offers,
+    service requests, dashboard, etc.) until it returns a final answer.
 
-    The LLM can invoke 27 tools covering the full Customer Portal API:
-    auth, companies, reviews, profiles, offers, service requests, dashboard.
-
-    Click the **lock icon** (top-right) and paste your JWT to authenticate.
-    Public actions (browse companies, view reviews) work without auth.
+    **Session:** omit `session_id` the first time; reuse the returned id on later turns.
+    **Auth:** optional `Authorization: Bearer <JWT>` — without it, only public tools succeed.
     """
     return await _handle_chat(body, request, credentials)
 
